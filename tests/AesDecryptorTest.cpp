@@ -78,7 +78,7 @@ void AesDecryptorTest::testSimpleDecrypt() {
 
     Stashing::AesDecryptor decryptor;
     std::ostringstream oss;
-    decryptor.descrypt(buffer, oss, passphrase);
+    decryptor.decrypt(buffer, oss, passphrase);
 
     CPPUNIT_ASSERT_EQUAL(std::string("The quick brown fox jumped over the lazy dog"), oss.str());
 }

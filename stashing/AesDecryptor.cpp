@@ -67,7 +67,7 @@ namespace Stashing {
         return ctx;
     }
 
-    void AesDecryptor::descrypt(std::istream &cipher, std::ostream &plain, const std::string& passphrase) {
+    void AesDecryptor::decrypt(std::istream &cipher, std::ostream &plain, const std::string& passphrase) {
         unsigned char salt[8];
         if (!extractSalt(cipher, salt)) {
             throw std::invalid_argument("Expected encrypted binary stream data to contain salt");
