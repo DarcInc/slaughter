@@ -18,4 +18,7 @@ target_link_directories(slaughter PUBLIC ./stashing)
 target_include_directories(slaughter PUBLIC ./stashing)
 target_link_libraries(slaughter stashing OpenSSL::SSL)
 
+enable_testing()
+add_subdirectory(tests)
+
 
