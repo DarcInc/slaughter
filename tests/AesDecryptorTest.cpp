@@ -82,3 +82,14 @@ void AesDecryptorTest::testSimpleDecrypt() {
 
     CPPUNIT_ASSERT_EQUAL(std::string("The quick brown fox jumped over the lazy dog"), oss.str());
 }
+
+void AesDecryptorTest::testSimpleMessageDecrypt() {
+    Stashing::AesDecryptor decryptor;
+
+    auto data = decryptor.decrypt(m_sampleData, (int)sampleTextHex.length()/2, "foobar");
+    unsigned char buffer[sampleTextHex.length()/2];
+    memcpy(buffer, data.get(), sampleTextHex.length()/2 - 16);
+    buffer[sampleTextHex.length()/2 - 16] = '\0';
+
+    CPPUNIT_ASSERT_EQUAL(std::string("The quick brown fox jumped over the lazy dog"), std::string((char*)buffer));
+}

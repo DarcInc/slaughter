@@ -11,6 +11,7 @@
 class AesDecryptorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(AesDecryptorTest);
         CPPUNIT_TEST(testSimpleDecrypt);
+        CPPUNIT_TEST(testSimpleMessageDecrypt);
     CPPUNIT_TEST_SUITE_END();
 
     unsigned char* m_sampleData;
@@ -20,6 +21,7 @@ public:
     void tearDown() override;
 
     void testSimpleDecrypt();
+    void testSimpleMessageDecrypt();
 };
 
 

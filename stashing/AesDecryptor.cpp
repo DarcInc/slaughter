@@ -25,6 +25,16 @@ namespace Stashing {
         return result;
     }
 
+    bool AesDecryptor::extractSalt(unsigned char* cipherText, unsigned char* salt) {
+        bool result = false;
+        if (::memcmp(cipherText, "Salted__", 8) == 0) {
+            ::memcpy((void*) salt, cipherText + 8, 8);
+            result = true;
+        }
+        return result;
+    }
+
+
     int AesDecryptor::computeKey(unsigned char* salt, const std::string& passPhrase, unsigned char* outKey, unsigned char* outIv) {
         ::bzero(outKey, EVP_MAX_KEY_LENGTH);
         ::bzero(outIv, EVP_MAX_IV_LENGTH);
@@ -84,5 +94,31 @@ namespace Stashing {
         EVP_DecryptFinal_ex(ctx, (unsigned char*)clearbuffer, &outLength);
         plain.write(clearbuffer, outLength);
 
+    }
+
+    std::unique_ptr<unsigned char[]>
+    AesDecryptor::decrypt(unsigned char* cipherText, int cipherTextSize, const std::string &passphrase) {
+        if (cipherTextSize < 16) {
+            throw std::invalid_argument("Cipher text is too small to decrypt with passphrase");
+        }
+
+        unsigned char salt[8];
+        if (!extractSalt(cipherText, salt)) {
+            throw std::invalid_argument("Expected encrypted message to contain salt");
+        }
+
+        unsigned char key[EVP_MAX_KEY_LENGTH];
+        unsigned char iv[EVP_MAX_IV_LENGTH];
+
+        int keyLength = computeKey(salt, passphrase, key, iv);
+        EVP_CIPHER_CTX *ctx = openContex(key, iv, keyLength);
+        int outLength;
+
+        std::unique_ptr<unsigned char[]> result = std::make_unique<unsigned char[]>(cipherTextSize - 16);
+
+        EVP_DecryptUpdate(ctx, result.get(), &outLength, cipherText + 16, cipherTextSize - 16);
+        EVP_DecryptFinal_ex(ctx, result.get() + outLength, &outLength);
+
+        return result;
     }
 }
