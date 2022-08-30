@@ -1,6 +1,6 @@
 enable_testing()
 
-add_executable(tests main.cpp Sha256Test.cpp Sha256Test.hpp AesDecryptorTest.cpp AesDecryptorTest.hpp)
+add_executable(tests main.cpp Sha256Test.cpp Sha256Test.hpp AesDecryptorTest.cpp AesDecryptorTest.hpp AesEncryptorTest.cpp AesEncryptorTest.hpp)
 
 target_link_directories(tests
         PUBLIC ${CMAKE_SOURCE_DIR}/stashing)

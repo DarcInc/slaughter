@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <stdexcept>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 
 namespace Stashing {
@@ -50,18 +51,23 @@ namespace Stashing {
         return keySize;
     }
 
-    EVP_CIPHER_CTX* AesDecryptor::openContex(unsigned char* key, unsigned char* iv, const int& keyLength) {
+    EVP_CIPHER_CTX* AesDecryptor::openContext(unsigned char* key, unsigned char* iv, const int& keyLength) {
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
         if (ctx == nullptr) {
             throw std::runtime_error("Unable to open a cipher context");
         }
 
-        if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
-            throw std::runtime_error("Failed to initialize the cipher context");
-        }
+        try {
+            if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
+                throw std::runtime_error("Failed to initialize the cipher context");
+            }
 
-        if (1 != EVP_CIPHER_CTX_set_key_length(ctx, keyLength)) {
-            throw std::runtime_error("Failed to set cipher key length");
+           if (1 != EVP_CIPHER_CTX_set_key_length(ctx, keyLength)) {
+               throw std::runtime_error("Failed to set cipher key length");
+           }
+        } catch(...) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw;
         }
 
         return ctx;
@@ -77,7 +83,7 @@ namespace Stashing {
         unsigned char iv[EVP_MAX_IV_LENGTH];
 
         int keyLength = computeKey(salt, passphrase, key, iv);
-        EVP_CIPHER_CTX *ctx = openContex(key, iv, keyLength);
+        EVP_CIPHER_CTX *ctx = openContext(key, iv, keyLength);
 
         char buffer[1024 * 32];
         char clearbuffer[1024 * 32];
@@ -109,15 +115,37 @@ namespace Stashing {
 
         unsigned char key[EVP_MAX_KEY_LENGTH];
         unsigned char iv[EVP_MAX_IV_LENGTH];
+        EVP_CIPHER_CTX *ctx = nullptr;
 
-        int keyLength = computeKey(salt, passphrase, key, iv);
-        EVP_CIPHER_CTX *ctx = openContex(key, iv, keyLength);
-        int outLength;
+        int cipherOffset = 8 + PKCS5_SALT_LEN;
 
-        std::unique_ptr<unsigned char[]> result = std::make_unique<unsigned char[]>(cipherTextSize - 16);
+        std::unique_ptr<unsigned char[]> result = std::make_unique<unsigned char[]>(cipherTextSize - cipherOffset);
 
-        EVP_DecryptUpdate(ctx, result.get(), &outLength, cipherText + 16, cipherTextSize - 16);
-        EVP_DecryptFinal_ex(ctx, result.get() + outLength, &outLength);
+        try {
+            int keyLength = computeKey(salt, passphrase, key, iv);
+            ctx = openContext(key, iv, keyLength);
+            int outLength;
+
+            if (1 != EVP_DecryptUpdate(ctx, result.get(), &outLength, cipherText + cipherOffset, cipherTextSize - cipherOffset)) {
+                char buffer[256];
+                auto err = ERR_get_error();
+                ERR_error_string_n(err, buffer, sizeof(buffer));
+
+                throw std::runtime_error(buffer);
+            }
+
+            if (1 != EVP_DecryptFinal_ex(ctx, result.get() + outLength, &outLength)) {
+                char buffer[256];
+                auto err = ERR_get_error();
+                ERR_error_string_n(err, buffer, sizeof(buffer));
+                throw std::runtime_error(buffer);
+            }
+
+            EVP_CIPHER_CTX_free(ctx);
+        } catch(...) {
+            if (ctx != nullptr) EVP_CIPHER_CTX_free(ctx);
+            throw;
+        }
 
         return result;
     }
