@@ -36,6 +36,9 @@ namespace Stashing {
         size_t used();
 
         std::unique_ptr<unsigned char[]> raw() const;
+
+        friend class AesEncryptor;
+        friend class AesDecryptor;
     };
 }
 

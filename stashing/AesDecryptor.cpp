@@ -3,6 +3,7 @@
 //
 
 #include "AesDecryptor.hpp"
+#include "Block.hpp"
 
 #include <cstring>
 #include <stdexcept>
@@ -10,14 +11,18 @@
 #include <openssl/evp.h>
 
 namespace Stashing {
+    const size_t AesDecryptor::AES_CBC_BLOCK_SIZE_BYTES = EVP_CIPHER_get_block_size(EVP_aes_256_cbc());
+    const std::string AesDecryptor::SALT_STRING = "Salted__";
+
+
     bool AesDecryptor::extractSalt(std::istream &cipher, unsigned char *salt) {
         bool result = false;
         auto restartLocation = cipher.tellg();
-        char taste[16];
+        char taste[SALT_STRING.length() + PKCS5_SALT_LEN];
 
         cipher.read(taste, sizeof(taste));
-        if (::memcmp(taste, "Salted__", 8) == 0) {
-            ::memcpy((void*)salt, (void*)(taste + 8), 8);
+        if (::memcmp(taste, SALT_STRING.c_str(), SALT_STRING.length()) == 0) {
+            ::memcpy((void*)salt, (void*)(taste + SALT_STRING.length()), PKCS5_SALT_LEN);
             result = true;
         } else {
             cipher.seekg(restartLocation);
@@ -28,8 +33,8 @@ namespace Stashing {
 
     bool AesDecryptor::extractSalt(unsigned char* cipherText, unsigned char* salt) {
         bool result = false;
-        if (::memcmp(cipherText, "Salted__", 8) == 0) {
-            ::memcpy((void*) salt, cipherText + 8, 8);
+        if (::memcmp(cipherText, SALT_STRING.c_str(), SALT_STRING.length()) == 0) {
+            ::memcpy((void*) salt, cipherText + SALT_STRING.length(), PKCS5_SALT_LEN);
             result = true;
         }
         return result;
@@ -102,10 +107,14 @@ namespace Stashing {
 
     }
 
-    std::unique_ptr<unsigned char[]>
+    std::unique_ptr<Block>
     AesDecryptor::decrypt(unsigned char* cipherText, int cipherTextSize, const std::string &passphrase) {
-        if (cipherTextSize < 16) {
+        if (cipherTextSize < SALT_STRING.size() + PKCS5_SALT_LEN) {
             throw std::invalid_argument("Cipher text is too small to decrypt with passphrase");
+        }
+
+        if ((cipherTextSize - (SALT_STRING.size() + PKCS5_SALT_LEN)) % AES_CBC_BLOCK_SIZE_BYTES != 0) {
+            throw std::invalid_argument("Cipher text must align on the AES CBC block size.");
         }
 
         unsigned char salt[8];
@@ -117,29 +126,32 @@ namespace Stashing {
         unsigned char iv[EVP_MAX_IV_LENGTH];
         EVP_CIPHER_CTX *ctx = nullptr;
 
-        int cipherOffset = 8 + PKCS5_SALT_LEN;
+        int cipherOffset = SALT_STRING.length() + PKCS5_SALT_LEN;
 
-        std::unique_ptr<unsigned char[]> result = std::make_unique<unsigned char[]>(cipherTextSize - cipherOffset);
+        std::unique_ptr<Block> result = std::make_unique<Block>(cipherTextSize - cipherOffset);
 
         try {
             int keyLength = computeKey(salt, passphrase, key, iv);
             ctx = openContext(key, iv, keyLength);
             int outLength;
 
-            if (1 != EVP_DecryptUpdate(ctx, result.get(), &outLength, cipherText + cipherOffset, cipherTextSize - cipherOffset)) {
+            if (1 != EVP_DecryptUpdate(ctx, (unsigned char*)result->m_rawMemory, &outLength,
+                                       cipherText + cipherOffset, cipherTextSize - cipherOffset)) {
                 char buffer[256];
                 auto err = ERR_get_error();
                 ERR_error_string_n(err, buffer, sizeof(buffer));
 
                 throw std::runtime_error(buffer);
             }
+            result->m_used += outLength;
 
-            if (1 != EVP_DecryptFinal_ex(ctx, result.get() + outLength, &outLength)) {
+            if (1 != EVP_DecryptFinal_ex(ctx, (unsigned char*)result->m_rawMemory + outLength, &outLength)) {
                 char buffer[256];
                 auto err = ERR_get_error();
                 ERR_error_string_n(err, buffer, sizeof(buffer));
                 throw std::runtime_error(buffer);
             }
+            result->m_used += outLength;
 
             EVP_CIPHER_CTX_free(ctx);
         } catch(...) {
@@ -148,5 +160,9 @@ namespace Stashing {
         }
 
         return result;
+    }
+
+    std::unique_ptr<Block> AesDecryptor::decrypt(Block *block, const std::string& passphrase) {
+        return decrypt((unsigned char*)block->m_rawMemory, block->m_used, passphrase);
     }
 }

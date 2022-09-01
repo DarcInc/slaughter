@@ -3,6 +3,7 @@
 //
 
 #include "AesEncryptor.hpp"
+#include "Block.hpp"
 
 #include <cstring>
 #include <exception>
@@ -11,6 +12,9 @@
 #include <openssl/rand.h>
 
 namespace Stashing {
+    const std::string AesEncryptor::SALT_STRING = "Salted__";
+    const size_t AesEncryptor::AES_CBC_BLOCK_SIZE_BYTES = EVP_CIPHER_get_block_size(EVP_aes_256_cbc());
+
     int AesEncryptor::initializeKey(unsigned char* outSalt, unsigned char* outKey, unsigned char* outIv, const std::string& passPhrase) {
         RAND_bytes(outSalt, PKCS5_SALT_LEN);
 
@@ -44,6 +48,14 @@ namespace Stashing {
         return ctx;
     }
 
+    size_t AesEncryptor::expectedEncryptedSize(size_t clearSize) {
+        size_t result = clearSize + SALT_STRING.size() + PKCS5_SALT_LEN;
+        if (result % AES_CBC_BLOCK_SIZE_BYTES != 0) {
+            result = (result / AES_CBC_BLOCK_SIZE_BYTES + 1) * AES_CBC_BLOCK_SIZE_BYTES;
+        }
+        return result;
+    }
+
     void AesEncryptor::encrypt(std::istream& clearText, std::ostream& cipherText, const std::string& passPhrase) {
         unsigned char key[EVP_MAX_KEY_LENGTH];
         unsigned char iv[EVP_MAX_IV_LENGTH];
@@ -71,37 +83,39 @@ namespace Stashing {
         cipherText.write((char*)cipherBuffer, cipherBytes);
     }
 
-    std::unique_ptr<unsigned char[]> AesEncryptor::encrypt(void* clearText, int clearTextSize, const std::string& passphrase) {
+    std::unique_ptr<Block> AesEncryptor::encrypt(Block* block, const std::string& passphrase) {
+        return encrypt(block->m_rawMemory, block->m_used, passphrase);
+    }
+
+    std::unique_ptr<Block> AesEncryptor::encrypt(void *rawMemory, size_t memorySize, const std::string &passphrase) {
         unsigned char key[EVP_MAX_KEY_LENGTH];
         unsigned char iv[EVP_MAX_IV_LENGTH];
         EVP_CIPHER_CTX *ctx = nullptr;
+        const size_t expectedSize = expectedEncryptedSize(memorySize);
 
-        auto cipherSize = clearTextSize;
-        auto blockSize = EVP_CIPHER_get_block_size(EVP_aes_256_cbc());
-        cipherSize = cipherSize % blockSize ? ((cipherSize / blockSize) + 1) * blockSize : cipherSize;
-        cipherSize = cipherSize + 8 + PKCS5_SALT_LEN;
-
-        std::unique_ptr<unsigned char[]> result = std::make_unique<unsigned char[]>(cipherSize);
+        std::unique_ptr<Block> result = std::make_unique<Block>(expectedSize);
 
         try {
-            int offset = 0;
+            result->write((void*)SALT_STRING.c_str(), SALT_STRING.size());
 
-            ::memcpy(result.get() + offset, "Salted__", 8);
-            offset += 8;
+            unsigned char salt[PKCS5_SALT_LEN];
+            int keySize = initializeKey(salt, key, iv, passphrase);
 
-            int keySize = initializeKey(result.get() + offset, key, iv, passphrase);
-            offset += PKCS5_SALT_LEN;
+            result->write(salt, PKCS5_SALT_LEN);
 
             ctx = openContext(key, keySize, iv);
 
-            if (1 != EVP_EncryptUpdate(ctx, result.get() + offset, &cipherSize, (unsigned char *) clearText, clearTextSize)) {
+            int cipherSize;
+            if (1 != EVP_EncryptUpdate(ctx, (unsigned char*)result->m_rawMemory + result->m_used, &cipherSize,
+                                       (unsigned char *) rawMemory, memorySize)) {
                 throw std::runtime_error("Failed to write data to encryption context");
             }
-            offset += cipherSize;
+            result->m_used += cipherSize;
 
-            if (1 != EVP_EncryptFinal_ex(ctx, result.get() + offset, &cipherSize)) {
+            if (1 != EVP_EncryptFinal_ex(ctx, (unsigned char*)result->m_rawMemory + result->m_used, &cipherSize)) {
                 throw std::runtime_error("Unable to finalize encryption");
             }
+            result->m_used += cipherSize;
 
             EVP_CIPHER_CTX_free(ctx);
         } catch(...) {

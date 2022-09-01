@@ -3,6 +3,7 @@
 //
 
 #include "AesDecryptorTest.hpp"
+#include "Block.hpp"
 
 #include <boost/iostreams/stream.hpp>
 #include <boost/iostreams/device/array.hpp>
@@ -87,9 +88,11 @@ void AesDecryptorTest::testSimpleMessageDecrypt() {
     Stashing::AesDecryptor decryptor;
 
     auto data = decryptor.decrypt(m_sampleData, (int)sampleTextHex.length()/2, "foobar");
-    unsigned char buffer[sampleTextHex.length()/2];
-    memcpy(buffer, data.get(), sampleTextHex.length()/2 - 16);
-    buffer[sampleTextHex.length()/2 - 16] = '\0';
+    unsigned char buffer[data->used() + 1];
+    data->rewind();
+    data->read(buffer, data->used() + 1);
+    buffer[data->used()] = '\0';
+    std::string actual((char*)buffer);
 
     CPPUNIT_ASSERT_EQUAL(std::string("The quick brown fox jumped over the lazy dog"), std::string((char*)buffer));
 }
